@@ -1,0 +1,8 @@
+{
+  "name": "Server-Keydesk",
+  "identifier": "com.serverkeydesk.desktop",
+  "version": "0.2.0",
+  "icon": "resources/icon.png",
+  "main": ".",
+  "out": "dist"
+}

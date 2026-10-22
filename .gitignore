@@ -1,0 +1,12 @@
+*.exe
+*.zip
+*.log
+.mygo/
+dist/
+# Retired WebView implementation and its browser-only tests.
+/web/
+/tests/
+# Compatibility copies; native previews below are retained.
+/preview.png
+/preview-transfer.png
+/preview-maintenance.png
