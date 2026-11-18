@@ -3,6 +3,8 @@ package main
 import (
 	_ "embed"
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/updater"
+	"github.com/egoist/mygo/plugins/updater/native"
 	"github.com/egoist/mygo/ui"
 	"log"
 	"os"
@@ -14,11 +16,14 @@ import (
 var appIcon []byte
 
 func main() {
+	mygo.Use(native.New(updater.Options{Icon: appIcon}))
 	home, err := os.UserHomeDir()
 	if err != nil {
 		log.Fatal(err)
 	}
 	app := nativeui.New(desk.NewService(home))
+	app.Version = mygo.App.Version()
+	app.CheckForUpdates = updater.CheckForUpdates
 	defer app.Close()
 	mygo.App.WhenReady(func() {
 		window := mygo.NewWindow(mygo.WindowOptions{Title: "Server Keydesk · SSH 公钥助手", Content: ui.View(app.View), Width: 1000, Height: 760, MinWidth: 820, MinHeight: 640})

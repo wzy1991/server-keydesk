@@ -35,6 +35,8 @@ type connectionForm struct {
 type activity struct{ Time, Message string }
 type App struct {
 	PickPrivateKey                                func() (string, error)
+	CheckForUpdates                               func()
+	Version                                       string
 	backend                                       Backend
 	ctx                                           context.Context
 	cancel                                        context.CancelFunc

@@ -114,6 +114,12 @@ build.cmd
 
 正式构建通过 `build.cmd` 调用锁定版本的 `mygo build`，读取 `mygo.json` 并把 `resources/icon.png` 转换为 Windows 多尺寸图标资源，同时写入版本信息和 DPI manifest。窗口还显式使用同一 PNG 设置标题栏和任务栏图标。普通 `go build` 不会自动嵌入 EXE 文件图标；请使用上述构建入口。可执行 `python scripts/verify_windows_icon.py` 检查已构建 EXE 的图标资源。
 
+## 自动打包、发布与升级
+
+- **持续集成（`.github/workflows/ci.yml`）**：每次推送到 `main` 或发起 PR 时，自动在 Windows 运行 `go test ./...` 与 `go vet ./...`，并在 Ubuntu 使用 NSIS 自动打包 `windows/amd64` 与 `windows/arm64` 安装包。
+- **自动发布（`.github/workflows/release.yml`）**：更新 `mygo.json` 中的 `version` 并在 `CHANGELOG.md` 添加对应 `## <version>` 小节，提交并推送 `v<version>` 标签（如 `git tag v0.2.1 && git push github main v0.2.1`）后，自动测试、使用仓库 Secret `MYGO_UPDATER_PRIVATE_KEY` 签名更新包与增量补丁（`.delta`），上传安装包及 `update-windows-*.json` 清单并发布 GitHub Release。
+- **应用内升级**：应用集成了 `mygo/plugins/updater/native`，每日自动后台检查（亦可在左侧栏底部点击“检查更新”），校验 Ed25519 签名后下载安装并重启切换版本；使用安装包安装到用户目录或放在可写目录中的可执行文件均支持自更新。
+
 依赖版本锁定在 `go.mod`/`go.sum`。如果默认 Go 模块代理不可达，可在你的构建终端设置可访问的 `GOPROXY`，不要为了构建修改 SSH 安全选项。
 
 ## 验证记录

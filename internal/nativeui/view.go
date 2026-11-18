@@ -140,8 +140,18 @@ func (a *App) sidebar(c *ui.Context, width float32) {
 			}).OnClick(func() { a.page = item.name })
 		}
 		ui.Spacer(c)
+		if a.Version != "" || a.CheckForUpdates != nil {
+			ui.Row(c).Gap(6).AlignItems(ui.Center).Margin(0, 0, 12).Children(func() {
+				if a.Version != "" {
+					ui.Text(c, "v"+a.Version).FontSize(10).TextColor(ui.Hex("#8ca397")).Grow(1).SingleLine()
+				}
+				if a.CheckForUpdates != nil {
+					ui.Button(c.Key("check-updates"), "检查更新").Label("检查更新").Height(22).Padding(2, 8).Radius(4).FontSize(9).Border(1, ui.Hex("#3a594c")).Background(ui.Hex("#203a31")).TextColor(ui.Hex("#d7e4de")).Shrink(0).OnClick(a.CheckForUpdates)
+				}
+			})
+		}
 		ui.Text(c, "● 本机 SSH 工作空间").FontSize(10).TextColor(ui.Hex("#b1c1b7"))
-		ui.Text(c, "连接由你的电脑直接发起").FontSize(9).Margin(9, 0, 28).TextColor(ui.Hex("#759185"))
+		ui.Text(c, "连接由你的电脑直接发起").FontSize(9).Margin(9, 0, 18).TextColor(ui.Hex("#759185"))
 		ui.Text(c, "BUILT WITH MYGO / GO").FontSize(7).LetterSpacing(1).TextColor(ui.Hex("#637d70"))
 	})
 }

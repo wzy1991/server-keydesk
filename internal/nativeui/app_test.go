@@ -508,3 +508,18 @@ func TestNativeAliasIsCopyable(t *testing.T) {
 		t.Fatalf("recreate dialog copy clipboard = %q, want %q", got, "prod-web")
 	}
 }
+
+func TestNativeCheckForUpdatesButton(t *testing.T) {
+	a, _, tt := testApp(t)
+	checked := false
+	a.Version = "0.2.0"
+	a.CheckForUpdates = func() { checked = true }
+	tt.Frame()
+	if !tt.HasText("v0.2.0") {
+		t.Fatal("missing version badge")
+	}
+	click(t, tt, "检查更新")
+	if !checked {
+		t.Fatal("check-for-updates callback not invoked")
+	}
+}

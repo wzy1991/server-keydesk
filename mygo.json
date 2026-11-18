@@ -4,5 +4,9 @@
   "version": "0.2.0",
   "icon": "resources/icon.png",
   "main": ".",
-  "out": "dist"
+  "out": "dist",
+  "updates": {
+    "publicKey": "JM7j1wKiXBuXW7l5MfQZalePgD/0KUd2+tzSVZ9zaFQ=",
+    "github": "wzy1991/server-keydesk"
+  }
 }
