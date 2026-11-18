@@ -29,9 +29,12 @@ type Backend interface {
 type connectionForm struct {
 	Host, User, Port, Alias, Password string
 	ShowPassword                      bool
+	UsePrivateKey                     bool
+	PrivateKeyPath, Passphrase        string
 }
 type activity struct{ Time, Message string }
 type App struct {
+	PickPrivateKey                                func() (string, error)
 	backend                                       Backend
 	ctx                                           context.Context
 	cancel                                        context.CancelFunc
@@ -65,7 +68,12 @@ func New(backend Backend) *App {
 }
 
 // Close is also called by the native window lifecycle, cancelling worker IO.
-func (a *App) Close() { a.cancel(); a.add.Password = ""; a.recreate.Password = "" }
+func (a *App) Close() {
+	a.cancel()
+	a.add.Passphrase = ""
+	a.add.Password = ""
+	a.recreate.Password = ""
+}
 func (a *App) work(job func(context.Context) func()) {
 	a.jobs++
 	ctx := a.ctx
@@ -127,6 +135,7 @@ func (a *App) closeDialog() {
 	}
 	a.epoch++
 	a.dialogOpen = false
+	a.add.Passphrase = ""
 	a.add.Password = ""
 	a.add.ShowPassword = false
 	a.recreate.Password = ""

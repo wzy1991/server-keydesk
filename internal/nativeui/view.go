@@ -36,6 +36,15 @@ func panel(c *ui.Context) ui.Element {
 func caption(c *ui.Context, text string) ui.Element {
 	return ui.Text(c, text).FontSize(10).TextColor(muted)
 }
+func (a *App) copyAliasButton(c *ui.Context, label, alias string) {
+	if alias == "" {
+		return
+	}
+	ui.Button(c.Key("copy-"+alias), "复制").Label(label).Height(20).Padding(2, 7).Radius(4).FontSize(9).Border(1, line).Background(ui.Hex("#f7f9f5")).TextColor(ui.Hex("#526659")).Shrink(0).Tooltip("复制主机别名").OnClick(func() {
+		c.WriteClipboard(alias)
+		a.notify("已复制主机别名：" + alias)
+	})
+}
 func field(c *ui.Context, key, label string, value *string, disabled, password bool) bool {
 	changed := false
 	ui.Column(c.Key(key)).Gap(4).FillWidth().Children(func() {
@@ -226,7 +235,10 @@ func (a *App) serverRow(c *ui.Context, s desk.Server, narrow bool) {
 				ui.Text(c, "▤").FontSize(20).TextColor(ui.Hex("#8ea08c")).Padding(7).Radius(6).Background(ui.Hex("#f7f9f5"))
 			}
 			ui.Column(c).Grow(1).MinWidth(0).Gap(5).Children(func() {
-				ui.Text(c, s.Alias).FontSize(12).Bold().SingleLine()
+				ui.Row(c).Gap(6).AlignItems(ui.Center).FillWidth().Children(func() {
+					ui.Text(c, s.Alias).FontSize(12).Bold().SingleLine().Selectable().MinWidth(0).Shrink(1)
+					a.copyAliasButton(c, "复制别名 "+s.Alias, s.Alias)
+				})
 				ui.Textf(c, "%s@%s:%d", s.User, s.Host, s.Port).FontSize(10).TextColor(muted).SingleLine()
 			})
 		})
@@ -274,22 +286,37 @@ func (a *App) serverRow(c *ui.Context, s desk.Server, narrow bool) {
 }
 func (a *App) addFields(c *ui.Context) {
 	ui.Column(c).FillWidth().Gap(10).Children(func() {
-		caption(c, "首次用密码连接，核对服务器指纹后安装公钥。")
+		caption(c, "核对服务器指纹后验证登录。")
+		ui.Checkbox(c, &a.add.UsePrivateKey, "使用已有私钥（不安装新密钥）").Disabled(a.changing)
 		field(c, "add-host", "服务器地址", &a.add.Host, a.changing, false)
 		ui.Row(c).Gap(10).Children(func() {
 			ui.Column(c).Grow(1).MinWidth(0).Children(func() { field(c, "add-user", "用户名", &a.add.User, a.changing, false) })
 			ui.Column(c).Width(74).Children(func() { field(c, "add-port", "SSH 端口", &a.add.Port, a.changing, false) })
 		})
-		ui.Column(c).Gap(4).Children(func() {
-			caption(c, "登录密码")
-			ui.Row(c).Gap(4).Children(func() {
-				input := ui.TextInput(c.Key("add-password"), &a.add.Password).Label("登录密码").Placeholder("仅用于本次安装").Grow(1).MinWidth(0).Height(30).FontSize(11).Disabled(a.changing)
-				if !a.add.ShowPassword {
-					input.Password()
+		if a.add.UsePrivateKey {
+			caption(c, "私钥文件")
+			ui.Row(c).Gap(8).Children(func() {
+				name := a.add.PrivateKeyPath
+				if name == "" {
+					name = "尚未选择文件"
 				}
-				ui.Button(c, "◉").Label("显示或隐藏密码").Height(30).Width(28).FontSize(12).Disabled(a.changing).OnClick(func() { a.add.ShowPassword = !a.add.ShowPassword })
+				ui.Text(c, name).FontSize(11).Grow(1).MinWidth(0).Selectable()
+				btn(c, "选择私钥文件", false).Disabled(a.changing).OnClick(a.choosePrivateKey)
 			})
-		})
+			field(c, "add-passphrase", "私钥口令（可选，不保存）", &a.add.Passphrase, a.changing, true)
+			caption(c, "保留原文件内容，收紧权限为仅当前用户可访问。口令不保存，可配合 ssh-agent 使用。")
+		} else {
+			ui.Column(c).Gap(4).Children(func() {
+				caption(c, "登录密码")
+				ui.Row(c).Gap(4).Children(func() {
+					input := ui.TextInput(c.Key("add-password"), &a.add.Password).Label("登录密码").Placeholder("仅用于本次安装").Grow(1).MinWidth(0).Height(30).FontSize(11).Disabled(a.changing)
+					if !a.add.ShowPassword {
+						input.Password()
+					}
+					ui.Button(c, "◉").Label("显示或隐藏密码").Height(30).Width(28).FontSize(12).Disabled(a.changing).OnClick(func() { a.add.ShowPassword = !a.add.ShowPassword })
+				})
+			})
+		}
 		ui.Column(c).Gap(4).Children(func() {
 			field(c, "add-alias", "连接别名", &a.add.Alias, a.changing, false)
 			alias := a.add.Alias
@@ -298,7 +325,9 @@ func (a *App) addFields(c *ui.Context) {
 			}
 			caption(c, "以后通过 ssh "+alias+" 连接").FontSize(9)
 		})
-		ui.Text(c, "◇ 使用专用无口令 Ed25519 密钥，权限限当前用户。保留服务器已有公钥。").FontSize(9).TextColor(ui.Hex("#8d987c")).Padding(8).Radius(5).Background(ui.Hex("#f7f9f3"))
+		if !a.add.UsePrivateKey {
+			ui.Text(c, "◇ 使用专用无口令 Ed25519 密钥，权限限当前用户。保留服务器已有公钥。").FontSize(9).TextColor(ui.Hex("#8d987c")).Padding(8).Radius(5).Background(ui.Hex("#f7f9f3"))
+		}
 		ui.Text(c, a.formStatus).FontSize(9).TextColor(muted).MaxLines(3)
 	})
 }

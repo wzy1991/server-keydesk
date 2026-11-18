@@ -42,7 +42,7 @@ func (f *fixtureBackend) Probe(context.Context, desk.Target) (desk.HostInfo, err
 	return desk.HostInfo{Algorithm: "ssh-ed25519", Fingerprint: "SHA256:ExampleHostFingerprint"}, nil
 }
 func (f *fixtureBackend) Install(_ context.Context, r desk.InstallRequest) (desk.Server, error) {
-	if r.Password != "fixture-password" || r.Fingerprint != "SHA256:ExampleHostFingerprint" {
+	if (r.Password != "fixture-password" && !(r.PrivateKeyPath == "C:/fixture/key" && r.Passphrase == "secret" && r.Password == "")) || r.Fingerprint != "SHA256:ExampleHostFingerprint" {
 		return desk.Server{}, errors.New("incorrect credentials or fingerprint")
 	}
 	f.installed++
@@ -426,5 +426,85 @@ func TestNativePreview(t *testing.T) {
 	save("preview-native-transfer.png")
 	if strings.Contains(strings.Join(tt.Texts(), "\n"), "fixture-password") {
 		t.Fatal("password in visible text")
+	}
+}
+
+func TestNativeExistingKeyFlow(t *testing.T) {
+	a, b, tt := testApp(t)
+	a.add = connectionForm{Host: "203.0.113.9", User: "ubuntu", Port: "22", Alias: "existing", UsePrivateKey: true, PrivateKeyPath: "C:/fixture/key", Passphrase: "secret"}
+	tt.Frame()
+	click(t, tt, "添加服务器")
+	if !tt.HasText("私钥文件") {
+		t.Fatal("missing private key field")
+	}
+	click(t, tt, "检查服务器指纹")
+	if b.installed != 0 {
+		t.Fatal("authenticated before confirmation")
+	}
+	click(t, tt, "取消")
+	if a.add.Passphrase != "" {
+		t.Fatal("cancel retained passphrase")
+	}
+	a.add.Passphrase = "secret"
+	click(t, tt, "添加服务器")
+	click(t, tt, "检查服务器指纹")
+	click(t, tt, "指纹正确，保存连接")
+	if b.installed != 1 || a.add.Passphrase != "" {
+		t.Fatal("key request or cleanup failed")
+	}
+	for _, entry := range a.log {
+		if strings.Contains(entry.Message, "公钥安装成功") {
+			t.Fatal("incorrect install receipt")
+		}
+	}
+}
+
+func TestPrivateKeyPicker(t *testing.T) {
+	a, _, tt := testApp(t)
+	a.add.UsePrivateKey = true
+	a.PickPrivateKey = func() (string, error) { return "C:/keys/selected.pem", nil }
+	click(t, tt, "添加服务器")
+	click(t, tt, "选择私钥文件")
+	if a.add.PrivateKeyPath != "C:/keys/selected.pem" {
+		t.Fatal("selection not applied")
+	}
+	a.PickPrivateKey = func() (string, error) { return "", nil }
+	click(t, tt, "选择私钥文件")
+	if a.add.PrivateKeyPath != "C:/keys/selected.pem" || a.dialogBusy {
+		t.Fatal("cancel lost selection or left busy")
+	}
+}
+
+func TestNativeAliasIsCopyable(t *testing.T) {
+	a, _, tt := testApp(t)
+
+	// 1. One-click copy button in the server row.
+	click(t, tt, "复制别名 prod-web")
+	if got := tt.Clipboard(); got != "prod-web" {
+		t.Fatalf("copy button clipboard = %q, want %q", got, "prod-web")
+	}
+	if a.toast != "已复制主机别名：prod-web" {
+		t.Fatalf("toast = %q, want copy confirmation", a.toast)
+	}
+
+	// 2. Direct text selection and Cmd/Ctrl+C on the alias text.
+	tt.SetClipboard("")
+	r, ok := tt.Find("office-pc")
+	if !ok {
+		t.Fatal("missing office-pc alias")
+	}
+	tt.ClickAt(r.X+r.W/2, r.Y+r.H/2)
+	tt.Key(ui.Cmd, ui.KeyA)
+	tt.Key(ui.Cmd, ui.KeyC)
+	if got := tt.Clipboard(); got != "office-pc" {
+		t.Fatalf("selectable alias clipboard = %q, want %q", got, "office-pc")
+	}
+
+	// 3. Copy button inside the recreate dialog.
+	tt.SetClipboard("")
+	click(t, tt, "重新创建 prod-web")
+	click(t, tt, "复制连接别名 prod-web")
+	if got := tt.Clipboard(); got != "prod-web" {
+		t.Fatalf("recreate dialog copy clipboard = %q, want %q", got, "prod-web")
 	}
 }

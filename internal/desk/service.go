@@ -29,10 +29,12 @@ type Overview struct {
 	InventoryPath string   `json:"inventoryPath"`
 }
 type InstallRequest struct {
-	Target      Target `json:"target"`
-	Password    string `json:"password"`
-	Fingerprint string `json:"fingerprint"`
-	Trust       bool   `json:"trust"`
+	PrivateKeyPath string `json:"privateKeyPath"`
+	Passphrase     string `json:"-"`
+	Target         Target `json:"target"`
+	Password       string `json:"password"`
+	Fingerprint    string `json:"fingerprint"`
+	Trust          bool   `json:"trust"`
 }
 type Service struct {
 	home         string
@@ -142,6 +144,9 @@ func (s *Service) Install(ctx context.Context, r InstallRequest) (Server, error)
 	}
 	if err := AliasAvailable(s.home, r.Target.Alias); err != nil {
 		return Server{}, err
+	}
+	if r.PrivateKeyPath != "" {
+		return s.useExistingKey(ctx, r)
 	}
 	if r.Password == "" {
 		return Server{}, errors.New("请输入服务器密码（不会保存）")

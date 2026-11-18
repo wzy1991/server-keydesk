@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"golang.org/x/crypto/ssh"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -220,6 +222,78 @@ func TestPasswordBootstrapVerifiesKeyAndRejectsWrongPassword(t *testing.T) {
 	}
 	if !installed.Load() {
 		t.Fatal("key not installed")
+	}
+	// Reuse an already authorized identity without invoking the install script.
+	installed.Store(false)
+	config.PublicKeyCallback = func(c ssh.ConnMetadata, k ssh.PublicKey) (*ssh.Permissions, error) {
+		if !bytes.Equal(k.Marshal(), allowed.Marshal()) {
+			return nil, errors.New("wrong key")
+		}
+		return nil, nil
+	}
+	if runtime.GOOS == "windows" {
+		if out, err := exec.Command("icacls.exe", key, "/grant", "*S-1-1-0:(R)").CombinedOutput(); err != nil {
+			t.Fatalf("%v: %s", err, out)
+		}
+	}
+	before, _ := os.ReadFile(key)
+	reuseHome := t.TempDir()
+	os.MkdirAll(filepath.Join(reuseHome, ".ssh"), 0700)
+	os.WriteFile(filepath.Join(reuseHome, ".ssh", "config"), []byte("UserKnownHostsFile \""+filepath.ToSlash(filepath.Join(reuseHome, ".ssh", "known_hosts"))+"\"\n"), 0600)
+	reuse := NewService(reuseHome)
+	_, err = reuse.Install(context.Background(), InstallRequest{Target: target, PrivateKeyPath: key, Fingerprint: info.Fingerprint, Trust: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked, checkErr := reuse.Check(context.Background(), target.Alias)
+	if checkErr != nil || checked.State != "key_ready" {
+		t.Fatalf("original key not usable by OpenSSH: %v %+v", checkErr, checked)
+	}
+	if installed.Load() {
+		t.Fatal("existing-key login installed a remote key")
+	}
+	after, _ := os.ReadFile(key)
+	if !bytes.Equal(before, after) {
+		t.Fatal("original key changed")
+	}
+	if _, err := os.Stat(filepath.Join(reuseHome, ".ssh", "keydesk_ed25519")); !os.IsNotExist(err) {
+		t.Fatal("generated replacement key")
+	}
+	saved, _ := os.ReadFile(filepath.Join(reuseHome, ".ssh", "config"))
+	if !strings.Contains(string(saved), filepath.ToSlash(key)) {
+		t.Fatal("original identity not saved")
+	}
+	raw, err := ssh.ParseRawPrivateKey(before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := ssh.MarshalPrivateKeyWithPassphrase(raw, "fixture", []byte("key-passphrase"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	encryptedPath := filepath.Join(t.TempDir(), "encrypted key")
+	if err := os.WriteFile(encryptedPath, pem.EncodeToMemory(block), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, scenario := range []struct {
+		pass, fingerprint string
+		ok                bool
+	}{
+		{"wrong", info.Fingerprint, false}, {"key-passphrase", "SHA256:wrong", false}, {"key-passphrase", info.Fingerprint, true},
+	} {
+		svc := NewService(t.TempDir())
+		_, err := svc.Install(context.Background(), InstallRequest{Target: target, PrivateKeyPath: encryptedPath, Passphrase: scenario.pass, Fingerprint: scenario.fingerprint, Trust: true})
+		if (err == nil) != scenario.ok {
+			t.Fatalf("encrypted-key result: %v", err)
+		}
+		if !scenario.ok {
+			if _, err := os.Stat(filepath.Join(svc.home, ".ssh", "config")); !os.IsNotExist(err) {
+				t.Fatal("failed authentication saved config")
+			}
+		}
+	}
+	if installed.Load() {
+		t.Fatal("encrypted key flow installed authorization")
 	}
 	// Exercise the whole application workflow, including the real OpenSSH
 	// process, saved alias, persisted result and exported inventory.

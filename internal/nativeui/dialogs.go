@@ -47,7 +47,11 @@ func (a *App) dialogView(c *ui.Context, width, height float32) {
 				ui.Text(c, description).FontSize(12).TextColor(muted)
 				fingerprint(c, a.host.Algorithm, a.host.Fingerprint)
 				caption(c, fmt.Sprintf("%s@%s:%d", a.installTarget.User, a.installTarget.Host, a.installTarget.Port))
-				warning(c, "请与服务器控制台或可信渠道提供的指纹比对。确认后将发送密码并安装公钥。")
+				if a.add.UsePrivateKey {
+					warning(c, "请通过可信渠道核对指纹。确认后使用原有私钥认证并保存连接，不修改服务器授权密钥。")
+				} else {
+					warning(c, "请与服务器控制台或可信渠道提供的指纹比对。确认后将发送密码并安装公钥。")
+				}
 			case "delete":
 				if a.deletePlan != nil {
 					warning(c, a.deletePlan.Warning)
@@ -75,9 +79,17 @@ func (a *App) dialogView(c *ui.Context, width, height float32) {
 			btn(c, label, false).Disabled(a.dialogBusy).OnClick(a.closeDialog)
 			switch kind {
 			case "add":
-				btn(c, "检查指纹并安装公钥", true).Disabled(a.dialogBusy || a.changing).OnClick(a.beginInstall)
+				label := "检查指纹并安装公钥"
+				if a.add.UsePrivateKey {
+					label = "检查服务器指纹"
+				}
+				btn(c, label, true).Disabled(a.dialogBusy || a.changing).OnClick(a.beginInstall)
 			case "trust":
-				btn(c, "指纹正确，安装公钥", true).Disabled(a.dialogBusy).OnClick(a.install)
+				label := "指纹正确，安装公钥"
+				if a.add.UsePrivateKey {
+					label = "指纹正确，保存连接"
+				}
+				btn(c, label, true).Disabled(a.dialogBusy).OnClick(a.install)
 			case "delete":
 				btn(c, "删除本机连接", true).Background(danger).Disabled(a.dialogBusy || a.deletePlan == nil).OnClick(a.deleteConnection)
 			case "recreate":
@@ -97,7 +109,11 @@ func (a *App) dialogView(c *ui.Context, width, height float32) {
 }
 func (a *App) recreateDialog(c *ui.Context) {
 	caption(c, "填写服务器当前地址和登录密码。新密钥验证成功后才替换本机配置。")
-	ui.Text(c, "连接别名："+a.recreate.Alias).FontSize(12)
+	ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, "连接别名：").FontSize(12)
+		ui.Text(c, a.recreate.Alias).FontSize(12).Bold().Selectable().MinWidth(0).Shrink(1)
+		a.copyAliasButton(c, "复制连接别名 "+a.recreate.Alias, a.recreate.Alias)
+	})
 	if field(c, "recreate-host", "服务器地址", &a.recreate.Host, a.dialogBusy, false) {
 		a.invalidateRecreate()
 	}

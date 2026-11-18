@@ -66,3 +66,14 @@ Latest user amendment implemented: add-key access opens as a modal from “添�
 Independent read-only review found three issues. Regression tests reproduced and fixed each: delayed export completion overriding a busy transfer dialog; status-detail navigation interrupting password-install preflight; successful transfer retries retaining prior failure detail. A separate async regression fixes a refresh request lost while a previous list load was running. Native input/checkbox tests verify confirmation, target edits invalidating plans, password cleanup, busy Escape/cancel behavior and saved-but-unreachable receipts. No review findings remain deferred.
 
 Verification: full Go suite **65 top-level tests passed, zero failures/skips**, including 15 native interaction/layout/preview tests and the existing 50 backend tests; go vet ./... passed. Native tests passed again after final visual adjustments. Official mygo Windows build succeeded. A real native Windows window and native UI Automation control tree were inspected; the running process had no WebView/browser descendants. Only local configuration was listed in that window; no server checks, credential entry or server changes were performed. Release/source archives exclude the retired web UI and browser test artifacts; required icon source is retained.
+
+
+## Existing private key login (2026-11-12)
+
+The add-server dialog offers an existing-private-key mode with a native file chooser and optional transient passphrase. Host confirmation precedes authentication. This mode saves IdentityFile pointing to the original key and never generates a key or opens a remote shell/session. Original key bytes and remote authorization remain unchanged. Authentication success is recorded separately from command readiness; subsequent batch checks need an unencrypted key or an available ssh-agent for encrypted keys.
+
+Local SSH fixture coverage includes unchanged key bytes, no replacement key, no installation script, encrypted-key success, incorrect passphrase, and host fingerprint mismatch. Native UI coverage exercises the private-key fields, confirmation gate, cancellation cleanup and successful request/receipt.
+
+
+### Existing-key OpenSSH permissions correction
+Creation previously authenticated through Go SSH while checks used system OpenSSH, which rejects overly broad private-key ACLs. After successful authentication, existing-key setup now restricts the selected file to the current user before saving the alias, preserving its bytes. The real SSH fixture grants Everyone read access and verifies setup repairs it sufficiently for the subsequent OpenSSH Check to pass. Native picker tests cover selection and cancellation. The selected-file permission change is explained in the form.

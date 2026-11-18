@@ -20,7 +20,7 @@ func (f connectionForm) target() (desk.Target, error) {
 }
 func (a *App) openAdd() {
 	a.openDialog("add", "添加密钥访问")
-	a.formStatus = "先核对服务器指纹，再发送登录密码。"
+	a.formStatus = "先核对服务器指纹，再验证登录。"
 }
 func (a *App) beginInstall() {
 	if a.changing {
@@ -31,19 +31,24 @@ func (a *App) beginInstall() {
 		a.formStatus = err.Error()
 		return
 	}
-	if a.add.Password == "" {
+	if !a.add.UsePrivateKey && a.add.Password == "" {
 		a.formStatus = "请输入服务器密码（不会保存）"
+		return
+	}
+	if a.add.UsePrivateKey && strings.TrimSpace(a.add.PrivateKeyPath) == "" {
+		a.formStatus = "请输入私钥文件路径"
 		return
 	}
 	a.changing = true
 	a.dialogBusy = true
-	a.formStatus = "正在读取服务器指纹，尚未发送密码…"
+	a.formStatus = "正在读取服务器指纹，尚未提交登录认证…"
 	a.work(func(ctx context.Context) func() {
 		host, err := a.backend.Probe(ctx, target)
 		return func() {
 			a.changing = false
 			a.dialogBusy = false
 			if err != nil {
+				a.add.Passphrase = ""
 				a.add.Password = ""
 				a.add.ShowPassword = false
 				a.formStatus = err.Error()
@@ -53,23 +58,34 @@ func (a *App) beginInstall() {
 			a.installTarget = target
 			a.host = host
 			a.openDialog("trust", "核对服务器身份")
-			a.formStatus = "请核对指纹后确认安装。"
+			a.formStatus = "请核对指纹后确认连接。"
 		}
 	})
 }
 func (a *App) install() {
-	if a.dialogBusy || a.dialog != "trust" || a.add.Password == "" {
+	if a.dialogBusy || a.dialog != "trust" || (!a.add.UsePrivateKey && a.add.Password == "") {
 		return
 	}
+	usingKey := a.add.UsePrivateKey
 	r := desk.InstallRequest{Target: a.installTarget, Password: a.add.Password, Fingerprint: a.host.Fingerprint, Trust: !a.host.Known}
+	if usingKey {
+		r.PrivateKeyPath = strings.TrimSpace(a.add.PrivateKeyPath)
+		r.Passphrase = a.add.Passphrase
+		r.Password = ""
+	}
+	a.add.Passphrase = ""
 	a.add.Password = ""
 	a.add.ShowPassword = false
 	a.dialogBusy = true
 	a.changing = true
 	a.dialogStatus = "正在安装公钥并验证密钥连接…"
+	if usingKey {
+		a.dialogStatus = "正在验证原有私钥并保存连接…"
+	}
 	a.work(func(ctx context.Context) func() {
 		row, err := a.backend.Install(ctx, r)
 		r.Password = ""
+		r.Passphrase = ""
 		return func() {
 			a.dialogBusy = false
 			a.changing = false
@@ -83,8 +99,13 @@ func (a *App) install() {
 			}
 			a.add = connectionForm{Port: "22"}
 			a.formStatus = "安装成功。现在可以使用 ssh " + row.Alias + " 连接。"
-			a.record(row.Alias + "：公钥安装成功，SSH 别名已验证")
-			a.notify(row.Alias + " 已就绪")
+			if usingKey {
+				a.formStatus = row.Detail
+				a.record(row.Alias + "：原有私钥认证成功，连接已保存")
+			} else {
+				a.record(row.Alias + "：公钥安装成功，SSH 别名已验证")
+			}
+			a.notify(row.Alias + " 已保存")
 			a.Refresh()
 		}
 	})
@@ -158,7 +179,7 @@ func (a *App) prepareRecreate() {
 	a.invalidateRecreate()
 	epoch := a.epoch
 	a.dialogBusy = true
-	a.dialogStatus = "正在读取服务器指纹，尚未发送密码…"
+	a.dialogStatus = "正在读取服务器指纹，尚未提交登录认证…"
 	a.work(func(ctx context.Context) func() {
 		p, err := a.backend.PrepareRecreate(ctx, target)
 		return func() {
@@ -297,6 +318,30 @@ func (a *App) sendTransfer() {
 				a.dialogStatus = "连接和密钥已保存到 B，但 B → C 未通过验证。"
 				a.dialogText = r.Detail + "\n请检查 B 的网络和 SSH 策略；无需重复生成密钥。"
 				a.record("连接已发送到 " + p.Destination.Alias + "；B → C 检测状态：" + stateLabel(r.State))
+			}
+		}
+	})
+}
+
+func (a *App) choosePrivateKey() {
+	if a.changing || a.dialogBusy || a.PickPrivateKey == nil {
+		return
+	}
+	a.dialogBusy = true
+	a.changing = true
+	picker := a.PickPrivateKey
+	a.work(func(ctx context.Context) func() {
+		path, err := picker()
+		return func() {
+			a.dialogBusy = false
+			a.changing = false
+			if err != nil {
+				a.formStatus = "选择私钥失败：" + err.Error()
+				return
+			}
+			if path != "" {
+				a.add.PrivateKeyPath = path
+				a.add.Passphrase = ""
 			}
 		}
 	})
