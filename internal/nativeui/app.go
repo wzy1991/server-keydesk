@@ -13,6 +13,9 @@ import (
 	"server-keydesk/internal/desk"
 )
 
+type TerminalHandle interface {
+	Close()
+}
 type Backend interface {
 	List(context.Context) (desk.Overview, error)
 	Check(context.Context, string) (desk.Server, error)
@@ -25,6 +28,7 @@ type Backend interface {
 	RecreateConnection(context.Context, string, string, bool) (desk.MaintenanceResult, error)
 	PrepareTransfer(context.Context, desk.TransferRequest) (desk.TransferPlan, error)
 	SendTransfer(context.Context, string, bool) (desk.TransferResult, error)
+	TerminalCommand(context.Context, string) ([]string, error)
 }
 type connectionForm struct {
 	Host, User, Port, Alias, Password string
@@ -33,10 +37,19 @@ type connectionForm struct {
 	PrivateKeyPath, Passphrase        string
 }
 type activity struct{ Time, Message string }
+type terminalSession struct {
+	alias            string
+	handle           TerminalHandle
+	starting, exited bool
+	exitCode         int
+	epoch            uint64
+}
 type App struct {
 	PickPrivateKey                                func() (string, error)
 	CheckForUpdates                               func()
 	Version                                       string
+	TerminalFactory                               func(alias string, command []string, onExit func(int)) (TerminalHandle, error)
+	TerminalView                                  func(c *ui.Context, handle TerminalHandle) ui.Element
 	backend                                       Backend
 	ctx                                           context.Context
 	cancel                                        context.CancelFunc
@@ -46,6 +59,7 @@ type App struct {
 	overview                                      desk.Overview
 	page, search, filter                          string
 	checking                                      map[string]bool
+	terminal                                      terminalSession
 	loading, batch, changing                      bool
 	refreshAgain                                  bool
 	add, recreate                                 connectionForm
@@ -72,6 +86,10 @@ func New(backend Backend) *App {
 // Close is also called by the native window lifecycle, cancelling worker IO.
 func (a *App) Close() {
 	a.cancel()
+	if a.terminal.handle != nil {
+		a.terminal.handle.Close()
+		a.terminal.handle = nil
+	}
 	a.add.Passphrase = ""
 	a.add.Password = ""
 	a.recreate.Password = ""
@@ -194,6 +212,59 @@ func (a *App) check(alias string) {
 		}
 	})
 }
+func (a *App) openTerminal(alias string) {
+	if a.terminal.alias == alias && a.terminal.handle != nil {
+		a.page = "终端"
+		return
+	}
+	a.terminal = terminalSession{alias: alias, starting: true, epoch: a.epoch + 1}
+	a.page = "终端"
+	a.work(func(ctx context.Context) func() {
+		command, err := a.backend.TerminalCommand(ctx, alias)
+		return func() {
+			if a.terminal.alias != alias || !a.terminal.starting {
+				return
+			}
+			if err != nil {
+				a.terminal = terminalSession{}
+				a.page = "服务器"
+				a.notify(alias + "：" + err.Error())
+				a.record(alias + " 内嵌终端启动失败：" + err.Error())
+				return
+			}
+			epoch := a.terminal.epoch
+			handle, err := a.TerminalFactory(alias, command, func(code int) {
+				a.done <- func() {
+					if a.terminal.alias == alias && a.terminal.epoch == epoch {
+						a.terminal.exited = true
+						a.terminal.exitCode = code
+						a.record(alias + "：SSH 连接已结束（退出码 " + fmt.Sprint(code) + "）")
+					}
+				}
+			})
+			if err != nil {
+				a.terminal = terminalSession{}
+				a.page = "服务器"
+				a.notify(alias + "：" + err.Error())
+				a.record(alias + " 内嵌终端创建失败：" + err.Error())
+				return
+			}
+			a.terminal.handle = handle
+			a.terminal.starting = false
+			a.notify("已连接 " + alias)
+			a.record(alias + "：已启动内嵌 OpenSSH 直连终端")
+		}
+	})
+}
+
+func (a *App) disconnectTerminal() {
+	if a.terminal.handle != nil {
+		a.terminal.handle.Close()
+	}
+	a.terminal = terminalSession{}
+	a.page = "服务器"
+}
+
 func (a *App) checkAll() {
 	if a.batch || a.changing {
 		return

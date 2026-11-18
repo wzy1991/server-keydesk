@@ -72,3 +72,22 @@ func TestInventoryContainsNoCredentials(t *testing.T) {
 		t.Fatalf("unexpected inventory: %s", data)
 	}
 }
+
+func TestTerminalCommandValidatesAliasAndUsesOpenSSH(t *testing.T) {
+	home := t.TempDir()
+	os.MkdirAll(filepath.Join(home, ".ssh"), 0700)
+	config := filepath.Join(home, ".ssh", "config")
+	os.WriteFile(config, []byte("Host demo\n HostName example.com\n User deploy\n"), 0600)
+	svc := NewService(home)
+
+	if _, err := svc.TerminalCommand(context.Background(), "missing"); err == nil {
+		t.Fatal("unknown terminal alias accepted")
+	}
+	command, err := svc.TerminalCommand(context.Background(), "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if command[0] != "ssh" || command[1] != "-F" || command[2] != config || command[len(command)-1] != "demo" {
+		t.Fatalf("unexpected terminal command: %q", command)
+	}
+}

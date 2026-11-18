@@ -1,10 +1,11 @@
 package desk
 
 import (
-	"golang.org/x/sys/windows"
 	"os/exec"
 	"os/user"
 	"syscall"
+
+	"golang.org/x/sys/windows"
 )
 
 func hide(cmd *exec.Cmd) { cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true} }

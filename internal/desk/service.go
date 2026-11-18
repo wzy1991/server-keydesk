@@ -220,6 +220,20 @@ func (s *Service) Check(ctx context.Context, alias string) (Server, error) {
 	return row, nil
 }
 
+func (s *Service) TerminalCommand(_ context.Context, alias string) ([]string, error) {
+	aliases, err := Aliases(s.home)
+	if err != nil {
+		return nil, err
+	}
+	if !slices.Contains(aliases, alias) {
+		return nil, errors.New("找不到该 SSH 别名，请刷新列表")
+	}
+	if _, err := exec.LookPath("ssh"); err != nil {
+		return nil, errors.New("未找到系统 OpenSSH 客户端，请先安装 Windows OpenSSH")
+	}
+	return append([]string{"ssh"}, append(s.configArgs(), "--", alias)...), nil
+}
+
 func (s *Service) remember(row Server) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

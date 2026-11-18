@@ -19,8 +19,16 @@ import (
 type fixtureBackend struct {
 	rows                                        []desk.Server
 	installed, deleted, recreated, sent, checks int
+	terminalCommands                            map[string][]string
 	fail                                        bool
 }
+type fakeTerminal struct {
+	alias   string
+	command []string
+	closed  bool
+}
+
+func (f *fakeTerminal) Close() { f.closed = true }
 
 func fixture() *fixtureBackend {
 	return &fixtureBackend{rows: []desk.Server{{Target: desk.Target{Alias: "prod-web", Host: "203.0.113.10", User: "ubuntu", Port: 22}, State: "auth_failed"}, {Target: desk.Target{Alias: "office-pc", Host: "192.0.2.20", User: "operator", Port: 22}, State: "key_ready"}}}
@@ -92,11 +100,25 @@ func (f *fixtureBackend) SendTransfer(_ context.Context, token string, yes bool)
 	}
 	return desk.TransferResult{OK: true, Alias: "prod-web", State: state, Detail: "连接已保存到 B，但 B 无法连接 C", KeyPath: "C:/Users/operator/.ssh/keydesk/imported/example/id_ed25519"}, nil
 }
+func (f *fixtureBackend) TerminalCommand(_ context.Context, alias string) ([]string, error) {
+	if f.terminalCommands == nil {
+		f.terminalCommands = map[string][]string{}
+	}
+	command := []string{"ssh", "-F", "C:/fixture/config", "--", alias}
+	f.terminalCommands[alias] = command
+	return command, nil
+}
 func testApp(t *testing.T) (*App, *fixtureBackend, *ui.Tester) {
 	t.Helper()
 	b := fixture()
 	a := New(b)
 	a.execute = func(fn func()) { fn() }
+	a.TerminalFactory = func(alias string, command []string, _ func(int)) (TerminalHandle, error) {
+		return &fakeTerminal{alias: alias, command: command}, nil
+	}
+	a.TerminalView = func(c *ui.Context, _ TerminalHandle) ui.Element {
+		return ui.Text(c, "内嵌终端已渲染").FontSize(12)
+	}
 	t.Cleanup(a.Close)
 	a.Refresh()
 	tt := ui.NewTester(a.View, 1320, 840)
@@ -169,6 +191,29 @@ func TestNativeDeleteCancelAndBackupReceipt(t *testing.T) {
 	click(t, tt, "删除本机连接")
 	if b.deleted != 1 || !tt.HasText("连接已删除 · 配置备份") {
 		t.Fatal("delete receipt missing")
+	}
+}
+func TestNativeOpensEmbeddedDirectTerminalWithoutCheckingFirst(t *testing.T) {
+	a, b, tt := testApp(t)
+	var handle *fakeTerminal
+	a.TerminalFactory = func(alias string, command []string, _ func(int)) (TerminalHandle, error) {
+		handle = &fakeTerminal{alias: alias, command: command}
+		return handle, nil
+	}
+	tt.Frame()
+	click(t, tt, "直连终端 office-pc")
+	if len(b.terminalCommands) != 1 || b.checks != 0 {
+		t.Fatal("embedded terminal did not start directly without a preflight check")
+	}
+	if handle == nil || handle.alias != "office-pc" || handle.command[len(handle.command)-1] != "office-pc" {
+		t.Fatal("embedded terminal command missing target alias")
+	}
+	if !tt.HasText("内嵌终端已渲染") || !tt.HasText("已连接 office-pc") {
+		t.Fatal("embedded terminal view or status missing")
+	}
+	click(t, tt, "断开终端")
+	if !handle.closed || tt.HasText("内嵌终端已渲染") {
+		t.Fatal("disconnect did not close the embedded terminal")
 	}
 }
 func TestNativeRecreateAcknowledgementEditedTargetAndFailureCleanup(t *testing.T) {

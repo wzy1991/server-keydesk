@@ -91,6 +91,8 @@ func (a *App) View(c *ui.Context) {
 				caption(c, "● 本地运行 · 密码不落盘")
 			})
 			switch a.page {
+			case "终端":
+				a.terminalView(c)
 			case "操作记录":
 				a.activityView(c)
 			case "使用说明":
@@ -201,7 +203,7 @@ func (a *App) serverPanel(c *ui.Context, narrow bool) {
 		ui.Row(c).Padding(15, 16, 12).Gap(12).Children(func() {
 			ui.Column(c).Grow(1).Gap(4).Children(func() {
 				ui.Text(c, "服务器列表").FontSize(13).Bold()
-				caption(c, "兼容已有密钥、SSH Agent 和代理配置")
+				caption(c, "兼容已有密钥、SSH Agent 和代理配置；终端由本机 OpenSSH 直接连接")
 			})
 			text := "检测全部"
 			if a.batch {
@@ -216,7 +218,7 @@ func (a *App) serverPanel(c *ui.Context, narrow bool) {
 		ui.Row(c).Height(29).Padding(0, 14).Gap(8).Background(ui.Hex("#f8faf7")).BorderWidth(1, 0).BorderColor(line).Children(func() {
 			caption(c, "服务器 / 连接地址").Grow(1)
 			caption(c, "密钥状态").Width(90)
-			caption(c, "操作").Width(124)
+			caption(c, "操作").Width(158)
 		})
 		ui.Scroll(c.Key("server-list")).Grow(1).MinHeight(0).TrackScroll(&a.listScroll).Children(func() {
 			rows := a.visible()
@@ -279,11 +281,11 @@ func (a *App) serverRow(c *ui.Context, s desk.Server, narrow bool) {
 		}).OnClick(func() {
 			a.detail(s.Alias+" · "+stateLabel(s.State), fmt.Sprintf("%s@%s:%d\n\n%s\n\n连接命令：ssh %s", s.User, s.Host, s.Port, s.Detail, s.Alias))
 		})
-		ui.Row(c).Width(124).Gap(3).Children(func() {
+		ui.Row(c).Width(158).Gap(3).Children(func() {
 			for _, action := range []struct {
 				text, label string
 				fn          func()
-			}{{"检测", "检测 " + s.Alias, func() { a.check(s.Alias) }}, {"重建", "重新创建 " + s.Alias, func() { a.openRecreate(s) }}, {"删除", "删除 " + s.Alias, func() { a.openDelete(s) }}} {
+			}{{"终端", "直连终端 " + s.Alias, func() { a.openTerminal(s.Alias) }}, {"检测", "检测 " + s.Alias, func() { a.check(s.Alias) }}, {"重建", "重新创建 " + s.Alias, func() { a.openRecreate(s) }}, {"删除", "删除 " + s.Alias, func() { a.openDelete(s) }}} {
 				action := action
 				button := btn(c.Key(action.label), action.text, false).Label(action.label).Height(28).Padding(5, 6).FontSize(10).Disabled(a.checking[s.Alias] || a.batch || a.changing)
 				if action.text == "删除" {
@@ -339,6 +341,33 @@ func (a *App) addFields(c *ui.Context) {
 			ui.Text(c, "◇ 使用专用无口令 Ed25519 密钥，权限限当前用户。保留服务器已有公钥。").FontSize(9).TextColor(ui.Hex("#8d987c")).Padding(8).Radius(5).Background(ui.Hex("#f7f9f3"))
 		}
 		ui.Text(c, a.formStatus).FontSize(9).TextColor(muted).MaxLines(3)
+	})
+}
+func (a *App) terminalView(c *ui.Context) {
+	ui.Column(c).Fill().Padding(14, 24, 18).Gap(12).Children(func() {
+		ui.Row(c).Shrink(0).Gap(12).Children(func() {
+			ui.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
+				ui.Text(c, "终端 · "+a.terminal.alias).FontSize(25).Bold()
+				if a.terminal.exited {
+					caption(c, "SSH 连接已结束（退出码 "+fmt.Sprint(a.terminal.exitCode)+"）")
+				} else if a.terminal.starting {
+					caption(c, "正在建立 OpenSSH 连接…")
+				} else {
+					caption(c, "已在本窗口内直连服务器，可直接输入命令")
+				}
+			})
+			btn(c, "断开终端", false).Disabled(a.terminal.handle == nil).OnClick(a.disconnectTerminal)
+			btn(c, "返回服务器", false).OnClick(func() { a.page = "服务器" })
+		})
+		panel(c).Grow(1).MinHeight(0).Clip().Children(func() {
+			if a.terminal.handle == nil {
+				ui.Text(c, "正在启动内嵌终端…").TextColor(muted).Padding(50, 18)
+				return
+			}
+			if view := a.TerminalView; view != nil {
+				view(c, a.terminal.handle).Fill().AutoFocus()
+			}
+		})
 	})
 }
 func (a *App) activityView(c *ui.Context) {
